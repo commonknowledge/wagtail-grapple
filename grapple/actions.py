@@ -212,7 +212,7 @@ def build_node_type(
             "lazy": True,
             "name": type_name,
             "base_type": base_type,
-            "interface": interface,
+            "interface": cls.get_interface(interface) if hasattr(cls, 'get_interface') else interface,
         },
     }
 
@@ -235,7 +235,7 @@ def load_type_fields():
                 # Recreate the graphene type with the fields set
                 class Meta:
                     model = cls
-                    interfaces = (interface,) if interface is not None else tuple()
+                    interfaces = interface if type(interface) is tuple else (interface, ) if interface is not None else tuple()
 
                 type_meta = {"Meta": Meta, "id": graphene.ID(), "name": type_name}
                 exclude_fields = get_fields_and_properties(cls)
