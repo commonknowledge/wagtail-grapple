@@ -56,7 +56,7 @@ class PageInterface(graphene.Interface):
         Resolves the parent node of current page node.
         Docs: http://docs.wagtail.io/en/v2.5.1/reference/pages/model_reference.html?highlight=get_parent#wagtail.core.models.Page.get_parent
         """
-        return resolve_queryset(self.get_parent().specific(), info, **kwargs)
+        return self.get_parent().specific
 
     def resolve_children(self, info, **kwargs):
         """
