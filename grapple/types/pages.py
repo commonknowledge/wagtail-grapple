@@ -3,6 +3,7 @@ from django.contrib.contenttypes.models import ContentType
 from wagtail.core.models import Page as WagtailPage
 from wagtail_headless_preview.signals import preview_update
 from graphene_django.types import DjangoObjectType
+from graphql.error import GraphQLLocatedError
 from graphql.execution.base import ResolveInfo
 from rx.subjects import Subject
 from django.dispatch import receiver
@@ -15,23 +16,35 @@ from .structures import QuerySetList
 class PageInterface(graphene.Interface):
     id = graphene.ID()
     url = graphene.String()
-    url_path = graphene.String()
-    slug = graphene.String()
+    url_path = graphene.String(required=True)
+    slug = graphene.String(required=True)
     depth = graphene.Int()
     page_type = graphene.String()
-    title = graphene.String()
-    seo_title = graphene.String()
+    title = graphene.String(required=True)
+    seo_title = graphene.String(required=True)
     seo_description = graphene.String()
-    show_in_menus = graphene.Boolean()
-    content_type = graphene.String()
+    show_in_menus = graphene.Boolean(required=True)
+    content_type = graphene.String(required=True)
     last_published_at = graphene.DateTime()
     parent = graphene.Field(lambda: PageInterface)
-    children = QuerySetList(lambda: PageInterface, enable_search=True)
-    siblings = QuerySetList(lambda: PageInterface, enable_search=True)
-    next_siblings = QuerySetList(lambda: PageInterface, enable_search=True)
-    previous_siblings = QuerySetList(lambda: PageInterface, enable_search=True)
-    descendants = QuerySetList(lambda: PageInterface, enable_search=True)
-    ancestors = QuerySetList(lambda: PageInterface, enable_search=True)
+    children = QuerySetList(
+        graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+    )
+    siblings = QuerySetList(
+        graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+    )
+    next_siblings = QuerySetList(
+        graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+    )
+    previous_siblings = QuerySetList(
+        graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+    )
+    descendants = QuerySetList(
+        graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+    )
+    ancestors = QuerySetList(
+        graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+    )
 
     def resolve_content_type(self, info: ResolveInfo):
         self.content_type = ContentType.objects.get_for_model(self)
@@ -54,21 +67,24 @@ class PageInterface(graphene.Interface):
     def resolve_parent(self, info, **kwargs):
         """
         Resolves the parent node of current page node.
-        Docs: http://docs.wagtail.io/en/v2.5.1/reference/pages/model_reference.html?highlight=get_parent#wagtail.core.models.Page.get_parent
+        Docs: https://docs.wagtail.io/en/stable/reference/pages/model_reference.html#wagtail.core.models.Page.get_parent
         """
-        return self.get_parent().specific
+        try:
+            return resolve_queryset(self.get_parent().specific, info, **kwargs)
+        except GraphQLLocatedError:
+            return WagtailPage.objects.none()
 
     def resolve_children(self, info, **kwargs):
         """
-        Resolves a list of live children of this page with `show_in_menus` set.
-        Docs: http://docs.wagtail.io/en/v2.5.1/reference/pages/queryset_reference.html#examples
+        Resolves a list of live children of this page.
+        Docs: https://docs.wagtail.io/en/stable/reference/pages/queryset_reference.html#examples
         """
         return resolve_queryset(self.get_children().specific(), info, **kwargs)
 
     def resolve_siblings(self, info, **kwargs):
         """
         Resolves a list of sibling nodes to this page.
-        Docs: http://docs.wagtail.io/en/v2.5.1/reference/pages/queryset_reference.html?highlight=get_siblings#wagtail.core.query.PageQuerySet.sibling_of
+        Docs: https://docs.wagtail.io/en/stable/reference/pages/queryset_reference.html?highlight=get_siblings#wagtail.core.query.PageQuerySet.sibling_of
         """
         return resolve_queryset(
             self.get_siblings().exclude(pk=self.pk).specific(), info, **kwargs
@@ -83,7 +99,7 @@ class PageInterface(graphene.Interface):
             self.get_next_siblings().exclude(pk=self.pk).specific(), info, **kwargs
         )
 
-    def resolve_prev_siblings(self, info, **kwargs):
+    def resolve_previous_siblings(self, info, **kwargs):
         """
         Resolves a list of direct prev siblings of this page. Similar to `resolve_siblings` with sorting.
         Source: https://github.com/wagtail/wagtail/blob/master/wagtail/core/models.py#L1387
@@ -92,10 +108,17 @@ class PageInterface(graphene.Interface):
             self.get_prev_siblings().exclude(pk=self.pk).specific(), info, **kwargs
         )
 
+    def resolve_descendants(self, info, **kwargs):
+        """
+        Resolves a list of nodes pointing to the current page’s descendants.
+        Docs: https://docs.wagtail.io/en/stable/reference/pages/model_reference.html#wagtail.core.models.Page.get_descendants
+        """
+        return resolve_queryset(self.get_descendants().specific(), info, **kwargs)
+
     def resolve_ancestors(self, info, **kwargs):
         """
         Resolves a list of nodes pointing to the current page’s ancestors.
-        Docs: https://docs.wagtail.io/en/v2.5.1/reference/pages/model_reference.html?highlight=get_ancestors#wagtail.core.models.Page.get_ancestors
+        Docs: https://docs.wagtail.io/en/stable/reference/pages/model_reference.html#wagtail.core.models.Page.get_ancestors
         """
         return resolve_queryset(self.get_ancestors().specific(), info, **kwargs)
 
@@ -119,7 +142,7 @@ class Page(DjangoObjectType):
 
 def get_specific_page(id, slug, token, content_type=None):
     """
-    Get a spcecific page, also get preview if token is passed
+    Get a specific page, also get preview if token is passed
     """
     page = None
     try:
@@ -150,7 +173,9 @@ def PagesQuery():
     registry.pages[type(WagtailPage)] = Page
 
     class Mixin:
-        pages = QuerySetList(lambda: PageInterface, enable_search=True)
+        pages = QuerySetList(
+            graphene.NonNull(lambda: PageInterface), enable_search=True, required=True
+        )
         page = graphene.Field(
             PageInterface,
             id=graphene.Int(),

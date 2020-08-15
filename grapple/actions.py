@@ -8,9 +8,11 @@ from django.db import models
 from django.db.models.query import QuerySet
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.template.loader import render_to_string
 from wagtail.contrib.settings.models import BaseSetting
 from wagtail.core.models import Page as WagtailPage
-from wagtail.core.blocks import BaseBlock, RichTextBlock
+from wagtail.core.blocks import BaseBlock, RichTextBlock, stream_block
+from wagtail.core.rich_text import RichText, expand_db_html
 from wagtail.documents.models import AbstractDocument
 from wagtail.images.models import AbstractImage, AbstractRendition
 from wagtail.images.blocks import ImageChooserBlock
@@ -87,7 +89,7 @@ def register_model(cls: type, type_prefix: str):
         if issubclass(cls, WagtailPage):
             register_page_model(cls, type_prefix)
         elif issubclass(cls, AbstractDocument):
-            register_documment_model(cls, type_prefix)
+            register_document_model(cls, type_prefix)
         elif issubclass(cls, AbstractImage):
             register_image_model(cls, type_prefix)
         elif issubclass(cls, AbstractRendition):
@@ -177,7 +179,7 @@ def model_resolver(field):
 
         # If method then call and return result
         if callable(cls_field):
-            return cls_field()
+            return cls_field(info, **kwargs)
 
         # If none of those then just return field
         return cls_field
@@ -193,11 +195,11 @@ def build_node_type(
 ):
     """
     Build a graphene node type from a model class and associate
-    with an interface. If it has custom fields then implmement them.
+    with an interface. If it has custom fields then implement them.
     """
     type_name = type_prefix + cls.__name__
 
-    # Create a tempory model and tempory node that will be replaced later on.
+    # Create a temporary model and temporary node that will be replaced later on.
     class StubModel(models.Model):
         class Meta:
             managed = False
@@ -282,7 +284,18 @@ def streamfield_resolver(self, instance, info, **kwargs):
     if hasattr(instance, "block"):
         field_name = convert_to_underscore(info.field_name)
         block = instance.block.child_blocks[field_name]
-        value = instance.value[field_name]
+
+        if isinstance(instance.value, stream_block.StreamValue):
+            stream_data = dict(instance.value.stream_data)
+            value = stream_data[field_name]
+        else:
+            value = instance.value[field_name]
+
+        # Allow custom markup for RichText
+        if isinstance(value, RichText):
+            value = render_to_string(
+                "wagtailcore/richtext.html", {"html": expand_db_html(value.source)}
+            )
 
         if not block or not value:
             return None
@@ -357,7 +370,7 @@ def register_page_model(cls: Type[WagtailPage], type_prefix: str):
         registry.pages[cls] = page_node_type
 
 
-def register_documment_model(cls: Type[AbstractDocument], type_prefix: str):
+def register_document_model(cls: Type[AbstractDocument], type_prefix: str):
     """
     Create graphene node type for a model than inherits from AbstractDocument.
     Only one model will actually be generated because a default document model
