@@ -71,8 +71,8 @@ class PageInterface(graphene.Interface):
         """
         try:
             return resolve_queryset(self.get_parent().specific, info, **kwargs)
-        except GraphQLLocatedError:
-            return WagtailPage.objects.none()
+        except:
+            return self.get_parent().specific
 
     def resolve_children(self, info, **kwargs):
         """
