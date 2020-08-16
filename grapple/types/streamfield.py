@@ -392,7 +392,7 @@ def register_streamfield_blocks():
     from .images import get_image_type
 
     class PageChooserBlock(graphene.ObjectType):
-        page = graphene.Field(PageInterface, required=True)
+        page = graphene.Field(PageInterface)
 
         class Meta:
             interfaces = (StreamFieldInterface,)
